@@ -6,7 +6,7 @@ core/assistant.py — bmqa-v2
 - المتغير معرَّف بـ None على مستوى الوحدة.
 - يُنشأ الكائن الحقيقي داخل start_assistant() بعد بدء حلقة الأحداث النشطة.
 
-إذا كان ASSISTANT_SESSION فارغاً تُعطَّل الميزة بصمت تام دون إيقاف البوت.
+إذا كان ASSISTANT_SESSION فارغاً تُعطَّل الميزة بص بصمت تام دون إيقاف البوت.
 """
 
 import logging
@@ -41,11 +41,14 @@ async def start_assistant() -> None:
         return
 
     try:
+        # تم تعيين name=None و in_memory=True لإجبار بايروجرام على القراءة من الـ String
+        # مباشرة وتجنب قراءة أو إنشاء أي ملفات .session تالفة على سيرفر Railway.
         assistant = Client(
-            name="assistant",
+            name=None,
             api_id=config.api_id,
             api_hash=config.api_hash,
             session_string=config.ASSISTANT_SESSION,
+            in_memory=True,
         )
         await assistant.start()
         me = await assistant.get_me()
