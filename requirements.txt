@@ -10,6 +10,10 @@
 kurigram==2.2.23
 tgcrypto
 
+# --- Voice/Music: مكتبة المكالمات الصوتية ---
+# ntgcalls تُثبَّت تلقائياً كتبعية لـ py-tgcalls، ولا حاجة لإدراجها صراحةً.
+py-tgcalls
+
 # --- Redis (async) ---
 redis[hiredis]>=5.0.0
 
@@ -39,5 +43,3 @@ pytz
 hijri-converter
 SpeechRecognition
 arq
-
-
