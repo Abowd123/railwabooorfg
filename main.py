@@ -13,6 +13,8 @@ import config
 from core.dispatcher import COMMAND_HANDLERS
 # استيراد دالة التهيئة فقط في الأعلى لتجنب تضارب الـ Loop أثناء الـ Import
 from core.db import init_databases
+from core.assistant import start_assistant, stop_assistant
+from core.calls_engine import engine
 
 
 # ============================================================
@@ -87,15 +89,47 @@ async def _connect_services() -> None:
 async def main() -> None:
     # 🌟 أول خطوة: تهيئة القواعد فوراً داخل حلقة الأحداث النشطة
     await init_databases()
-    
+
     # التحقق من الخدمات بأمان
     await _connect_services()
-    
+
     logger.info("عدد الأوامر المسجّلة in dispatcher حالياً: %d", len(COMMAND_HANDLERS))
 
-    async with app:
-        logger.info("bmqa-v2 بدأ التشغيل بنجاح.")
-        await asyncio.Event().wait()
+    # تشغيل الحساب المساعد — لا يوقف البوت إن فشل أو كان ASSISTANT_SESSION فارغاً
+    try:
+        await start_assistant()
+    except Exception:
+        logger.error("خطأ غير متوقع أثناء تشغيل الحساب المساعد.", exc_info=True)
+
+    # تشغيل محرك المكالمات — يعتمد على الحساب المساعد، لا يوقف البوت إن فشل
+    try:
+        await engine.start()
+    except Exception:
+        logger.error(
+            "فشل تشغيل محرك المكالمات — ميزة الموسيقى معطلة.", exc_info=True
+        )
+
+    try:
+        async with app:
+            logger.info("bmqa-v2 بدأ التشغيل بنجاح.")
+            await asyncio.Event().wait()
+    finally:
+        # إيقاف محرك المكالمات أولاً ثم الحساب المساعد
+        try:
+            await engine.stop_engine()
+        except Exception:
+            logger.warning("خطأ أثناء إيقاف محرك المكالمات عند الإغلاق.", exc_info=True)
+
+        try:
+            await stop_assistant()
+        except Exception:
+            logger.warning("خطأ أثناء إيقاف الحساب المساعد عند الإغلاق.", exc_info=True)
+
+        try:
+            from core.youtube_calls import close_api_session
+            await close_api_session()
+        except Exception:
+            logger.warning("خطأ أثناء إغلاق جلسة ArtistBots عند الإغلاق.", exc_info=True)
 
 
 if __name__ == "__main__":
