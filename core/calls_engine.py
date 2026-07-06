@@ -7,16 +7,12 @@ core/calls_engine.py — bmqa-v2
   - core.youtube_calls → get_stream_source()  (تنزيل المقاطع)
   - core.calls_db  (حفظ الحالة وقائمة الانتظار في Redis)
   - core.assistant  (الحساب المساعد المطلوب للانضمام)
-
-ملاحظة التهيئة:
-  super().__init__() يُؤجَّل حتى start() لأن الـ assistant يبقى None
-  حتى نجاح start_assistant() في main.py. هذا النمط آمن طالما لا تُستدعى
-  أي دالة تعتمد على حالة PyTgCalls قبل استدعاء start().
 """
 
 from __future__ import annotations
 
 import logging
+import os
 
 import config
 from core import calls_db
@@ -47,13 +43,9 @@ logger = logging.getLogger("bmqa.calls_engine")
 class VoiceCallEngine(PyTgCalls):
     """
     محرك المكالمات الصوتية — Singleton يُهيَّأ في start().
-
-    super().__init__(assistant) يُؤجَّل حتى start() ليتوافق مع نمط
-    التهيئة الكسولة المستخدم في core/assistant.py وcore/db.py.
     """
 
     def __init__(self) -> None:
-        # لا نستدعي super().__init__() هنا — راجع: start()
         self._engine_started: bool = False
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -63,10 +55,7 @@ class VoiceCallEngine(PyTgCalls):
     async def start(self) -> None:
         """
         يُهيّئ PyTgCalls بالحساب المساعد ثم يبدأ التشغيل.
-        يرفع RuntimeError إن لم يكن الحساب المساعد متاحاً.
-        يُستدعى من main.py مباشرةً بعد start_assistant().
         """
-        # استيراد مؤجَّل لتجنب الدائرة عند import-time
         from core.assistant import assistant as _assistant
 
         if _assistant is None:
@@ -74,7 +63,6 @@ class VoiceCallEngine(PyTgCalls):
                 "الحساب المساعد غير متاح — تأكد من ضبط ASSISTANT_SESSION في .env"
             )
 
-        # تهيئة PyTgCalls بالحساب المساعد الفعلي
         super().__init__(_assistant)
         await super().start()
 
@@ -85,14 +73,9 @@ class VoiceCallEngine(PyTgCalls):
         logger.info("VoiceCallEngine بدأ التشغيل بنجاح.")
 
     async def stop_engine(self) -> None:
-        """
-        يوقف خدمة PyTgCalls بالكامل عند إغلاق البوت.
-        يُستدعى من finally في main.py بعد stop_assistant().
-        """
         if not self._engine_started:
             return
         try:
-            # pytgcalls v2+ قد لا تملك stop()، نحاول بأمان
             _stop = getattr(super(), "stop", None)
             if callable(_stop):
                 await _stop()
@@ -107,8 +90,6 @@ class VoiceCallEngine(PyTgCalls):
     # ──────────────────────────────────────────────────────────────────────────
 
     def _register_handlers(self) -> None:
-        """يُسجّل معالج StreamEnded لتشغيل الأغنية التالية تلقائياً."""
-
         @self.on_update()
         async def _on_stream_ended(_, update) -> None:
             if isinstance(update, StreamEnded):
@@ -130,32 +111,25 @@ class VoiceCallEngine(PyTgCalls):
         audio_only: bool = True,
     ) -> None:
         """
-        يُنزّل المقطع ثم يشغّله في المكالمة الصوتية للمجموعة.
-
-        الخطوات:
-          1. جلب مسار الملف من get_stream_source().
-          2. تحديد نوع البث بناءً على audio_only و VC_VIDEO_ENABLED.
-          3. بناء MediaStream بأسلوب AnonXMusic.
-          4. self.play() مع GroupCallConfig(auto_start=False).
-          5. تحديث حالة Redis بعد نجاح التشغيل.
-
-        يرفع ValueError إذا تجاوز المقطع الحد الزمني.
-        يرفع RuntimeError إذا فشل التنزيل أو التشغيل.
+        يُنزّل المقطع عبر ArtistBots API ثم يشغّله بشكل ديناميكي بالاعتماد على مسار الملف الراجع.
         """
-        # ── 1. تنزيل الملف ──────────────────────────────────────────────────
+        # ── 1. تنزيل الملف واعتماد المسار الحقيقي الحقيقي الراجع من الـ API ──
         try:
             file_path = await get_stream_source(video_id, audio_only=audio_only)
+            
+            # حماية إضافية: التحقق من وجود الملف فعلياً على السيرفر قبل التمرير لـ pytgcalls
+            if not file_path or not os.path.exists(file_path):
+                raise RuntimeError(f"الملف المحمل غير موجود في المسار المتوقع: {file_path}")
+                
         except ValueError:
-            # تجاوز الحد الزمني — نُعيد الرفع مباشرةً بدون تعديل
             raise
         except RuntimeError:
-            # فشل التنزيل — نُعيد الرفع مباشرةً
             raise
 
         # ── 2. تحديد نوع البث ────────────────────────────────────────────────
         use_video = (not audio_only) and config.VC_VIDEO_ENABLED
 
-        # ── 3. بناء MediaStream ──────────────────────────────────────────────
+        # ── 3. بناء MediaStream بالاعتماد على file_path الديناميكي ─────────────
         stream = MediaStream(
             media_path=file_path,
             audio_parameters=AudioQuality.HIGH,
@@ -168,7 +142,7 @@ class VoiceCallEngine(PyTgCalls):
             ),
         )
 
-        # ── 4. التشغيل ──────────────────────────────────────────────────────
+        # ── 4. التشغيل مع معالجة الأخطاء المتوافقة مع PyTgCalls v2+ ──────────
         try:
             await self.play(
                 chat_id=chat_id,
@@ -178,15 +152,22 @@ class VoiceCallEngine(PyTgCalls):
         except exceptions.NoActiveGroupCall:
             logger.warning("join_and_play [%d]: لا توجد مكالمة صوتية نشطة.", chat_id)
             raise RuntimeError("لا توجد مكالمة صوتية نشطة في المجموعة.")
-        except exceptions.AlreadyJoinedError:
-            logger.warning("join_and_play [%d]: الحساب المساعد منضم مسبقاً.", chat_id)
-            raise RuntimeError("الحساب المساعد منضم للمكالمة مسبقاً.")
-        except (NtgConnectionError, ConnectionNotFound, TelegramServerError):
-            logger.error("join_and_play [%d]: خطأ في الاتصال بخوادم تيليغرام.", chat_id)
-            raise RuntimeError("فشل الاتصال بخوادم تيليغرام أثناء التشغيل.")
-        except RTMPStreamingUnsupported:
-            logger.error("join_and_play [%d]: RTMP غير مدعوم.", chat_id)
-            raise RuntimeError("نوع المكالمة غير مدعوم (RTMP).")
+        except (exceptions.AlreadyJoined, AttributeError, Exception) as e:
+            # تم صيد AlreadyJoined بشكل متوافق وفي حال تغير الاسم نلتقط الاستثناء بمرونة
+            if "AlreadyJoined" in type(e).__name__ or "already" in str(e).lower():
+                logger.warning("join_and_play [%d]: الحساب المساعد منضم مسبقاً.", chat_id)
+                raise RuntimeError("الحساب المساعد منضم للمكالمة مسبقاً.")
+            
+            if isinstance(e, (NtgConnectionError, ConnectionNotFound, TelegramServerError)):
+                logger.error("join_and_play [%d]: خطأ في الاتصال بخوادم تيليغرام.", chat_id)
+                raise RuntimeError("فشل الاتصال بخوادم تيليغرام أثناء التشغيل.")
+            
+            if "RTMPStreamingUnsupported" in type(e).__name__:
+                logger.error("join_and_play [%d]: RTMP غير مدعوم.", chat_id)
+                raise RuntimeError("نوع المكالمة غير مدعوم (RTMP).")
+                
+            logger.error("خطأ غير متوقع أثناء تشغيل المكالمة: %s", e, exc_info=True)
+            raise RuntimeError(f"فشل تشغيل الصوت داخل المكالمة: {e}")
 
         # ── 5. تحديث Redis ───────────────────────────────────────────────────
         await calls_db.set_active_call(chat_id, video=use_video)
@@ -200,7 +181,6 @@ class VoiceCallEngine(PyTgCalls):
     # ──────────────────────────────────────────────────────────────────────────
 
     async def pause(self, chat_id: int) -> None:  # type: ignore[override]
-        """يوقف التشغيل مؤقتاً ويحدّث Redis."""
         try:
             await super().pause(chat_id)
             await calls_db.set_paused(chat_id, True)
@@ -211,7 +191,6 @@ class VoiceCallEngine(PyTgCalls):
             logger.error("pause [%d]: خطأ غير متوقع.", chat_id)
 
     async def resume(self, chat_id: int) -> None:  # type: ignore[override]
-        """يستأنف التشغيل ويحدّث Redis."""
         try:
             await super().resume(chat_id)
             await calls_db.set_paused(chat_id, False)
@@ -222,10 +201,6 @@ class VoiceCallEngine(PyTgCalls):
             logger.error("resume [%d]: خطأ غير متوقع.", chat_id)
 
     async def stop(self, chat_id: int) -> None:  # type: ignore[override]
-        """
-        يوقف مكالمة محددة ويحذف بياناتها من Redis.
-        يحذف Redis أولاً (يضمن النظافة حتى لو فشل leave_call).
-        """
         await calls_db.remove_active_call(chat_id)
         try:
             await self.leave_call(chat_id)
@@ -240,15 +215,9 @@ class VoiceCallEngine(PyTgCalls):
     # ──────────────────────────────────────────────────────────────────────────
 
     async def play_next(self, chat_id: int) -> None:
-        """
-        يسحب العنصر التالي من Redis ويشغّله.
-        إذا كانت القائمة فارغة، يغادر المكالمة تلقائياً.
-        إذا فشل تشغيل العنصر، يوقف المكالمة.
-        """
         item = await calls_db.queue_pop_next(chat_id)
 
         if item is None:
-            # لا يوجد شيء في الانتظار — مغادرة المكالمة
             logger.info("play_next [%d]: قائمة فارغة، مغادرة المكالمة.", chat_id)
             await self.stop(chat_id)
             return
@@ -257,7 +226,6 @@ class VoiceCallEngine(PyTgCalls):
         audio_only = not item.get("video", False)
 
         if not video_id:
-            # عنصر تالف — تخطّه وجرّب التالي
             logger.warning("play_next [%d]: عنصر بدون video_id، تخطّي.", chat_id)
             await self.play_next(chat_id)
             return
@@ -273,7 +241,6 @@ class VoiceCallEngine(PyTgCalls):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Singleton — يُبدأ في main.py بعد start_assistant()
+# Singleton
 # ─────────────────────────────────────────────────────────────────────────────
-
 engine = VoiceCallEngine()
