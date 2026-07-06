@@ -1,0 +1,37 @@
+# ============================================================
+# bmqa-v2 — requirements.txt
+# نسخة واحدة فقط من مكتبة Pyrogram (راجع شرح القرار في نهاية الرد).
+# لا تُدرج requests: كل الاستدعاءات HTTP يجب أن تمر عبر httpx أو aiohttp.
+# ============================================================
+
+# --- Telegram MTProto client ---
+# kurigram = فورك KurimuzonAkuma النشط لـ Pyrogram (منشور على PyPI باسم "kurigram").
+# اسم الاستيراد في الكود يبقى "pyrogram" (توافق كامل)، فلا حاجة لتعديل أي import.
+kurigram==2.2.23
+tgcrypto
+
+# --- Redis (async) ---
+redis[hiredis]>=5.0.0
+
+# --- kvsqlite (نسخة async فقط) ---
+kvsqlite
+
+# --- HTTP clients (بديل requests) ---
+httpx[http2]>=0.27.0,<1.0.0
+aiohttp>=3.9.0
+
+# --- Job queue ---
+python-arq
+
+# --- Plugins/downloader.py: تحميل يوتيوب/تيك توك/ساوند كلاود + Shazam ---
+# (ffmpeg نفسه ليس حزمة بايثون: يجب تثبيته على مستوى النظام، راجع README.md)
+yt-dlp
+shazamio
+
+# --- dotenv (مستخدم فعلاً في config.py الحالي) ---
+python-dotenv
+
+# --- Plugins/private_and_sudos.py: أدوات المطوّر/sudo (eval, exec, cmd, print, sc/webs/ss) ---
+psutil
+meval==2.5
+pytio
