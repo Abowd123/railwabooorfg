@@ -1,15 +1,10 @@
 """
 core/assistant.py — bmqa-v2
 حساب مساعد (Userbot) اختياري للانضمام للمكالمات الصوتية لاحقاً.
-
-يتبع نمط التهيئة الكسولة (Lazy Initialization) نفسه المستخدم في core/db.py:
-- المتغير معرَّف بـ None على مستوى الوحدة.
-- يُنشأ الكائن الحقيقي داخل start_assistant() بعد بدء حلقة الأحداث النشطة.
-
-إذا كان ASSISTANT_SESSION فارغاً تُعطَّل الميزة بص بصمت تام دون إيقاف البوت.
 """
 
 import logging
+import struct  # استيراد مكتبة struct لمعالجة الخطأ مباشرة
 
 from pyrogram import Client
 
@@ -17,22 +12,13 @@ import config
 
 logger = logging.getLogger("bmqa")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Singleton — يبقى None حتى نجاح start_assistant()
-# قابل للاستيراد مباشرةً:  from core.assistant import assistant
-# ─────────────────────────────────────────────────────────────────────────────
 assistant: Client | None = None
 
 
 async def start_assistant() -> None:
     """
     يبدأ تشغيل الحساب المساعد إن توفّرت جلسته في config.ASSISTANT_SESSION.
-
-    السلوك:
-    - إذا كان ASSISTANT_SESSION فارغاً → رسالة توضيحية + عودة هادئة.
-    - إذا نجح التشغيل → رسالة نجاح بـ username/id الحساب.
-    - إذا فشل لأي سبب → رسالة خطأ مع الـ traceback، والـ assistant يبقى None.
-    لا يُرفع أي استثناء في جميع الحالات — البوت الأساسي يعمل دائماً.
+    يحمي البوت من الانهيار حتى لو كان كود الجلسة (Session String) تالفاً أو غير متوافق.
     """
     global assistant
 
@@ -41,8 +27,7 @@ async def start_assistant() -> None:
         return
 
     try:
-        # تم تعيين name=None و in_memory=True لإجبار بايروجرام على القراءة من الـ String
-        # مباشرة وتجنب قراءة أو إنشاء أي ملفات .session تالفة على سيرفر Railway.
+        # استخدام إعدادات الذاكرة المؤقتة بالكامل
         assistant = Client(
             name=None,
             api_id=config.api_id,
@@ -57,19 +42,15 @@ async def start_assistant() -> None:
             me.username or me.first_name,
             me.id,
         )
-    except Exception:
+    except (struct.error, Exception) as e:
+        # إذا كان الخطأ هو تفكيك الجلسة التالفة، يتم طباعة تحذير واضح لمنع انهيار المحرك
         logger.error(
-            "فشل تشغيل الحساب المساعد — ميزة الموسيقى معطلة.",
-            exc_info=True,
+            f"فشل تشغيل الحساب المساعد بسبب كود جلسة تالف أو غير متوافق (struct.error). ميزة الموسيقى معطلة. الخطأ: {e}"
         )
         assistant = None
 
 
 async def stop_assistant() -> None:
-    """
-    يوقف الحساب المساعد بأمان إن كان يعمل.
-    يُستدعى دائماً عند الإغلاق حتى لو لم يكن المساعد يعمل.
-    """
     global assistant
 
     if assistant is None:
