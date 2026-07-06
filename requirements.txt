@@ -36,3 +36,5 @@ psutil
 meval==2.5
 pytio
 pytz
+hijri-converter
+
