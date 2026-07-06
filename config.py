@@ -61,3 +61,62 @@ redis_password = _optional("REDIS_PASSWORD") or None
 YTDB_PATH = _optional("YTDB_PATH", "ytdb.sqlite")
 SOUNDDB_PATH = _optional("SOUNDDB_PATH", "sounddb.sqlite")
 WSDB_PATH = _optional("WSDB_PATH", "wsdb.sqlite")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# --- ميزة الموسيقى / Voice Chat (اختيارية بالكامل) ---
+#
+# إن تركت ASSISTANT_SESSION أو API_URL فارغَين، تبقى ميزة التشغيل معطّلة
+# برسالة واضحة لمن يحاول استخدامها — ولن يتأثر تشغيل البوت الرئيسي بأي شكل.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _parse_vc_api_keys() -> list[str]:
+    """
+    يحلّل API_KEYS (مفاتيح مفصولة بفواصل، مثال: "key1,key2,key3")
+    مع دعم fallback لـ API_KEY المفرد القديم للتوافق مع الإعدادات السابقة.
+    يعيد قائمة فارغة إن لم تُضبط أيٌّ منهما — ميزة التشغيل ستُعطَّل لاحقاً.
+    """
+    raw = os.environ.get("API_KEYS", "").strip()
+    keys = [k.strip() for k in raw.split(",") if k.strip()] if raw else []
+    if not keys:
+        single = os.environ.get("API_KEY", "").strip()
+        if single:
+            keys = [single]
+    return keys
+
+
+def _optional_int(name: str, default: int) -> int:
+    """يقرأ متغير بيئة اختيارياً ويحوّله لـ int، يعود للقيمة الافتراضية عند قيمة غير رقمية."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        import warnings
+        warnings.warn(
+            f"[config] قيمة '{name}' ({raw!r}) غير رقمية، سيُستخدم الافتراضي {default}.",
+            stacklevel=2,
+        )
+        return default
+
+
+# جلسة Pyrogram لـ Userbot يُستخدم للانضمام للمكالمات الصوتية.
+# اختياري — إن كان فارغاً تُعطَّل أوامر التشغيل برسالة واضحة بدون إيقاف البوت.
+ASSISTANT_SESSION: str = _optional("ASSISTANT_SESSION")
+
+# تفعيل تشغيل الفيديو (افتراضي: False = صوت فقط)
+VC_VIDEO_ENABLED: bool = _optional("VC_VIDEO_ENABLED", "false").lower() == "true"
+
+# الحد الأقصى لمدة أي مقطع بالدقائق (افتراضي: 60 دقيقة)
+VC_DURATION_LIMIT_MINUTES: int = _optional_int("VC_DURATION_LIMIT_MINUTES", 60)
+
+# ArtistBots API — رابط التنزيل للصوت
+# مثال: https://api.artistbots.net  (راجع توثيق ArtistBots للمضيف الصحيح)
+API_URL: str = _optional("API_URL", "").strip()
+
+# ArtistBots API — رابط التنزيل للفيديو (قد يكون نفس API_URL أو مضيفاً مختلفاً)
+VIDEO_API_URL: str = _optional("VIDEO_API_URL", "").strip()
+
+# مفاتيح ArtistBots — فالباك تلقائي لـ API_KEY المفرد إن لم تُضبط API_KEYS
+API_KEYS: list[str] = _parse_vc_api_keys()
