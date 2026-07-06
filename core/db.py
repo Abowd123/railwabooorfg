@@ -31,7 +31,7 @@ core/db.py — bmqa-v2
 """
 
 import redis.asyncio as aioredis
-from kvsqlite.async_client import Client as KVSqliteDB
+from kvsqlite import Client as KVSqliteDB
 
 from config import (
     redis_host, redis_port, redis_db, redis_password,
