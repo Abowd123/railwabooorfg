@@ -17,11 +17,17 @@ from __future__ import annotations
 import json
 import logging
 
-# rdb يُستورد بعد تهيئته في init_databases() — آمن لأن calls_db
-# لن يُستخدم إلا بعد بدء تشغيل البوت (نفس نمط Plugins/downloader.py).
-from core.db import rdb
+# نستورد وحدة db بالكامل بدلاً من rdb مباشرةً لمنع تجمد قيمة None في الذاكرة
+import core.db
 
 logger = logging.getLogger("bmqa.calls_db")
+
+
+def _get_rdb():
+    """دالة مساعدة للتأكد من جلب الكائن الحقيقي لـ rdb بعد تهيئته والتحقق من عدم كونه None"""
+    if core.db.rdb is None:
+        raise RuntimeError("قاعدة بيانات Redis لم يتم تهيئتها بعد أو rdb قيمته None!")
+    return core.db.rdb
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -30,6 +36,7 @@ logger = logging.getLogger("bmqa.calls_db")
 
 async def set_active_call(chat_id: int, video: bool = False) -> None:
     """تخزّن مكالمة نشطة جديدة بحالة إيقاف مؤقت = False."""
+    rdb = _get_rdb()
     await rdb.hset(
         f"vc:{chat_id}:state",
         mapping={
@@ -46,6 +53,7 @@ async def get_active_call(chat_id: int) -> dict | None:
         {"video": bool, "paused": bool}
     أو None إذا لم توجد مكالمة نشطة.
     """
+    rdb = _get_rdb()
     data = await rdb.hgetall(f"vc:{chat_id}:state")
     if not data:
         return None
@@ -57,6 +65,7 @@ async def get_active_call(chat_id: int) -> dict | None:
 
 async def set_paused(chat_id: int, paused: bool) -> None:
     """تحدّث حقل paused فقط دون المساس ببقية بيانات المكالمة."""
+    rdb = _get_rdb()
     await rdb.hset(f"vc:{chat_id}:state", "paused", int(paused))
     logger.debug("set_paused chat_id=%d paused=%s", chat_id, paused)
 
@@ -66,6 +75,7 @@ async def remove_active_call(chat_id: int) -> None:
     تحذف بيانات المكالمة النشطة وقائمة الانتظار معاً دفعةً واحدة.
     يُستدعى عند إيقاف المكالمة نهائياً أو مغادرة البوت للمجموعة.
     """
+    rdb = _get_rdb()
     await rdb.delete(f"vc:{chat_id}:state", f"vc:{chat_id}:queue")
     logger.debug("remove_active_call chat_id=%d", chat_id)
 
@@ -77,6 +87,7 @@ async def remove_active_call(chat_id: int) -> None:
 
 async def queue_push(chat_id: int, item: dict) -> None:
     """تضيف عنصراً إلى نهاية قائمة الانتظار (JSON مُسلسَل)."""
+    rdb = _get_rdb()
     await rdb.rpush(f"vc:{chat_id}:queue", json.dumps(item, ensure_ascii=False))
     logger.debug("queue_push chat_id=%d item_keys=%s", chat_id, list(item.keys()))
 
@@ -86,6 +97,7 @@ async def queue_pop_next(chat_id: int) -> dict | None:
     تسحب أول عنصر في القائمة (FIFO) وتعيده كـ dict.
     تعيد None إذا كانت القائمة فارغة.
     """
+    rdb = _get_rdb()
     raw = await rdb.lpop(f"vc:{chat_id}:queue")
     if raw is None:
         return None
@@ -101,6 +113,7 @@ async def queue_list(chat_id: int) -> list[dict]:
     تعيد جميع عناصر القائمة بنفس ترتيب التشغيل (الأول → الأخير).
     تعيد قائمة فارغة إن لم توجد عناصر.
     """
+    rdb = _get_rdb()
     items = await rdb.lrange(f"vc:{chat_id}:queue", 0, -1)
     result = []
     for raw in items:
@@ -113,5 +126,6 @@ async def queue_list(chat_id: int) -> list[dict]:
 
 async def queue_clear(chat_id: int) -> None:
     """تحذف قائمة الانتظار بالكامل دون المساس ببيانات المكالمة النشطة."""
+    rdb = _get_rdb()
     await rdb.delete(f"vc:{chat_id}:queue")
     logger.debug("queue_clear chat_id=%d", chat_id)
