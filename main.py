@@ -95,6 +95,67 @@ async def _connect_services() -> None:
         raise
 
     try:
+        # ملاحظة: نسخة kvsqlite الحالية (راجع التوثيق الرسمي) لا توفّر
+        # method باسم connect() على Client — الاتصال يتم ضمنياً عند أول
+        # عملية فعلية على القاعدة. لذلك نتحقق من الجاهزية بعملية exists()
+        # غير مؤثرة بدل استدعاء connect() غير الموجود.
+        await ytdb.exists("__healthcheck__")
+        await sounddb.exists("__healthcheck__")
+        await wsdb.exists("__healthcheck__")
+        logger.info("kvsqlite: تم التحقق من جاهزية جميع القواعد (ytdb, sounddb, wsdb).")
+    except Exception:
+        logger.error("kvsqlite: فشل الاتصال بإحدى القواعد.", exc_info=True)
+        raise
+
+
+async def main() -> None:
+    await _connect_services()
+    logger.info("عدد الأوامر المسجّلة في dispatcher حالياً: %d", len(COMMAND_HANDLERS))
+
+    async with app:
+        logger.info("bmqa-v2 بدأ التشغيل بنجاح.")
+        await asyncio.Event().wait()  # ينتظر إلى الأبد (حتى إيقاف يدوي).
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.warning("تم إيقاف البوت يدوياً.")
+# ============================================================
+# 2) Redis (async) و3) kvsqlite (async)
+# ============================================================
+# النسخ الفعلية (singletons) أصبحت في core/db.py (RedisDB/KVSqliteDB) حتى
+# تكون طبقة بيانات مشتركة واحدة يستوردها main.py وكل Plugin لاحقاً، بدل
+# إنشاء عميل Redis/kvsqlite منفصل في كل ملف.
+
+
+# ============================================================
+# 4) Pyrogram Client
+# ============================================================
+app = Client(
+    name=f"{config.Dev_Zaid}bmqa",
+    api_id=config.api_id,
+    api_hash=config.api_hash,
+    bot_token=config.token,
+    plugins={"root": "Plugins"},
+)
+
+# ملاحظة: COMMAND_HANDLERS من core/dispatcher.py هو جدول توجيه فارغ حالياً
+# (dict: اسم الأمر -> handler). سيُستخدم لاحقاً بدل سلسلة if/elif، لكن ربطه
+# الفعلي بمعالج رسائل Pyrogram يتم في مرحلة لاحقة بعد نقل الأوامر.
+
+
+async def _connect_services() -> None:
+    """يتحقق من جاهزية Redis و kvsqlite قبل بدء العميل."""
+    try:
+        await redis_client.ping()
+        logger.info("Redis: اتصال ناجح.")
+    except Exception:
+        logger.error("Redis: فشل الاتصال.", exc_info=True)
+        raise
+
+    try:
         await ytdb.connect()
         await sounddb.connect()
         await wsdb.connect()
