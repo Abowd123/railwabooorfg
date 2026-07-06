@@ -19,7 +19,7 @@ kvsqlite
 # --- HTTP clients (بديل requests) ---
 httpx[http2]>=0.27.0,<1.0.0
 aiohttp>=3.9.0
-
+akinator
 # --- Job queue ---
 python-arq
 
