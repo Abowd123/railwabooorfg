@@ -22,11 +22,26 @@ from config import Dev_Zaid
 from core.db import rdb
 from core.errors import safe_handler
 from core.dispatcher import register
+from core.messages import get_message
 from helpers.ranks import admin_pls, mod_pls, owner_pls, isLockCommand
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Templates — منقولة من all_protection.py (معرَّفة هنا أيضاً لاستقلالية الملف)
+#
+# ⚠️ ملاحظة: قالبَي lock وOpen (الرسالتان الفعليتان عند نجاح القفل/الفتح) لم
+# تعودا تُستخدَمان مباشرة داخل _lock_toggle() بالأسفل — تم استبدال استخدامهما
+# هناك بـ await get_message("locks.chat_locked" / "locks.chat_opened", ...)
+# من core/messages.py، ليصبح بالإمكان تخصيصهما عبر لوحة تحكم المطوّرين
+# (Plugins/message_editor.py) دون المساس بهذا الملف مستقبلاً.
+# نصّا locks.chat_locked/locks.chat_opened في core/messages.py مطابقان حرفياً
+# لنصّي lock وOpen أدناه، لذا الرسالة النهائية للمستخدمين تبقى متطابقة حرفياً
+# بالضبط طالما لا يوجد override محفوظ في Redis.
+#
+# القوالب الستة أدناه (بما فيها lock وOpen) بقيت مُعرَّفة كما هي بلا أي حذف أو
+# تعديل، لأن Plugins/all_locks_2.py يستوردها مباشرة (lock, lockn, locknn,
+# Open, Openn, Openn2) ويستخدم Open/Openn مباشرة لحالة "فتح الإباحي" الخاصة،
+# بمعزل عن _lock_toggle — إزالتها كانت ستكسر ذلك الملف رغم عدم لمسه.
 # ══════════════════════════════════════════════════════════════════════════════
 
 Open = """
@@ -103,13 +118,15 @@ async def _lock_toggle(
             tmpl = locknn if gender == "f" else lockn
             return await m.reply(tmpl.format(k, mention, k, display))
         await rdb.set(f"{cid}:{redis_key}:{Dev_Zaid}", 1)
-        return await m.reply(lock.format(k, mention, k, display))
+        text = await get_message("locks.chat_locked", botkey=k, mention=mention, feature=display)
+        return await m.reply(text)
     else:
         if not state:
             tmpl = Openn2 if gender == "f" else Openn
             return await m.reply(tmpl.format(k, mention, k, display))
         await rdb.delete(f"{cid}:{redis_key}:{Dev_Zaid}")
-        return await m.reply(Open.format(k, mention, k, display))
+        text = await get_message("locks.chat_opened", botkey=k, mention=mention, feature=display)
+        return await m.reply(text)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
