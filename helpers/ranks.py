@@ -10,7 +10,17 @@ helpers/ranks.py — bmqa-v2
 
 from typing import Optional
 
-from config import Dev_Zaid, extra_owner_id, sudo_id
+import config as _config
+
+# ⚠️ استيراد "مرن" مقصوداً: لا نستخدم `from config import extra_owner_id, sudo_id`
+# مباشرة، لأن هذا يُسقط استيراد helpers/ranks.py بالكامل (ومن ثمّ كل Plugin
+# يعتمد عليه) إن كانت نسخة config.py الفعلية المنشورة لا تحتوي أحد هذين
+# المتغيّرين (كما حدث فعلياً: ImportError: cannot import name 'extra_owner_id').
+# Dev_Zaid يبقى استيراداً مباشراً وإلزامياً لأنه أساسي ومضمون الوجود دائماً.
+from config import Dev_Zaid
+extra_owner_id = getattr(_config, "extra_owner_id", None)
+sudo_id = getattr(_config, "sudo_id", None)
+
 from core.db import rdb
 
 async def _get_bot_owner() -> Optional[int]:
