@@ -8,19 +8,25 @@ helpers/ranks.py — bmqa-v2
 تم إصلاح مشكلة TypeError عند عدم تعيين botowner في الـ Redis.
 """
 
-from config import Dev_Zaid
+from typing import Optional
+
+from config import Dev_Zaid, extra_owner_id, sudo_id
 from core.db import rdb
 
-BOT_OWNER_FALLBACK_ID = 7201745912
+async def _get_bot_owner() -> Optional[int]:
+    """دالة مساعدة لجلب آيدي المالك (botowner) المُخزَّن في Redis بأمان.
 
-async def _get_bot_owner() -> int:
-    """دالة مساعدة لجلب آيدي المالك بأمان دون التسبب في خطأ NoneType"""
+    لا يوجد أي fallback ثابت مكتوب في الكود بعد اليوم: لو لم يُضبط botowner في
+    Redis، تُعاد None ببساطة (بدل ثابت مخفي كان يُستخدم قبل ضبط أي مالك).
+    راجع أيضاً `extra_owner_id` (من config.py) وهو تحقّق منفصل تماماً، اختياري
+    وصريح، يضبطه مالك النسخة بنفسه في .env — ولا علاقة له بقيمة Redis هذه.
+    """
     owner = await rdb.get(f'{Dev_Zaid}botowner')
-    return int(owner) if owner else BOT_OWNER_FALLBACK_ID
+    return int(owner) if owner else None
 
 
 async def get_rank(id, cid) -> str:
-    if id == BOT_OWNER_FALLBACK_ID:
+    if extra_owner_id is not None and id == extra_owner_id:
         return 'Aec🎖️'
     if id == int(Dev_Zaid):
         return 'البوت'
@@ -67,7 +73,7 @@ async def get_rank(id, cid) -> str:
 
 
 async def admin_pls(id, cid) -> bool:
-    if id == BOT_OWNER_FALLBACK_ID:
+    if extra_owner_id is not None and id == extra_owner_id:
         return True
     if id == int(Dev_Zaid):
         return True
@@ -90,7 +96,7 @@ async def admin_pls(id, cid) -> bool:
 
 
 async def mod_pls(id, cid) -> bool:
-    if id == BOT_OWNER_FALLBACK_ID:
+    if extra_owner_id is not None and id == extra_owner_id:
         return True
     if id == int(Dev_Zaid):
         return True
@@ -111,7 +117,7 @@ async def mod_pls(id, cid) -> bool:
 
 
 async def owner_pls(id, cid) -> bool:
-    if id == BOT_OWNER_FALLBACK_ID:
+    if extra_owner_id is not None and id == extra_owner_id:
         return True
     if id == int(Dev_Zaid):
         return True
@@ -130,7 +136,7 @@ async def owner_pls(id, cid) -> bool:
 
 
 async def gowner_pls(id, cid) -> bool:
-    if id == BOT_OWNER_FALLBACK_ID:
+    if extra_owner_id is not None and id == extra_owner_id:
         return True
     if id == int(Dev_Zaid):
         return True
@@ -147,7 +153,9 @@ async def gowner_pls(id, cid) -> bool:
 
 
 async def dev_pls(id, cid) -> bool:
-    if id == BOT_OWNER_FALLBACK_ID:
+    if id == sudo_id:
+        return True
+    if extra_owner_id is not None and id == extra_owner_id:
         return True
     if id == int(Dev_Zaid):
         return True
@@ -162,7 +170,7 @@ async def dev_pls(id, cid) -> bool:
 
 
 async def dev2_pls(id, cid) -> bool:
-    if id == BOT_OWNER_FALLBACK_ID:
+    if extra_owner_id is not None and id == extra_owner_id:
         return True
     if id == int(Dev_Zaid):
         return True
@@ -175,7 +183,9 @@ async def dev2_pls(id, cid) -> bool:
 
 
 async def devp_pls(id, cid) -> bool:
-    if id == BOT_OWNER_FALLBACK_ID:
+    if id == sudo_id:
+        return True
+    if extra_owner_id is not None and id == extra_owner_id:
         return True
     if id == int(Dev_Zaid):
         return True
@@ -186,7 +196,7 @@ async def devp_pls(id, cid) -> bool:
 
 
 async def pre_pls(id, cid) -> bool:
-    if id == BOT_OWNER_FALLBACK_ID:
+    if extra_owner_id is not None and id == extra_owner_id:
         return True
     if id == await _get_bot_owner():
         return True
@@ -213,9 +223,13 @@ async def pre_pls(id, cid) -> bool:
 async def get_devs_br():
     devs = []
     owner_id = await _get_bot_owner()
-    if not owner_id == BOT_OWNER_FALLBACK_ID:
-        devs.append(BOT_OWNER_FALLBACK_ID)
-    devs.append(owner_id)
+    # extra_owner_id اختياري تماماً (None افتراضياً): لا يُضاف لقائمة المطورين
+    # إلا إذا ضبطه مالك هذه النسخة صراحة في .env، وطالما هو مختلف عن botowner
+    # الفعلي حتى لا يتكرر في القائمة.
+    if extra_owner_id is not None and extra_owner_id != owner_id:
+        devs.append(extra_owner_id)
+    if owner_id is not None:
+        devs.append(owner_id)
     dev2_members = await rdb.smembers(f'{Dev_Zaid}DEV2')
     if dev2_members:
         for dev2 in dev2_members:
